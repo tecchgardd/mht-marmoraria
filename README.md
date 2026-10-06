@@ -12,21 +12,12 @@ Projeto Next.js (App Router) + Tailwind CSS para uma marmoraria de alto padrão,
 
 ## Estrutura
 ```
-app/
-  layout.js       -> fontes e metadata
-  page.js          -> monta todas as seções
-  globals.css      -> tailwind + utilitários (.btn-gold, .btn-outline, etc)
-components/
-  Header.js
-  Hero.js
-  StatsBar.js
-  ProjectsGallery.js
-  Materials.js
-  HowItWorks.js
-  WhyChooseUs.js
-  CTABanner.js
-  Footer.js
-  WhatsAppFloat.js
+src/
+  app/             -> paginas, layouts, estilos e rotas da API
+  components/      -> componentes da interface
+  lib/             -> logica e integracoes da aplicacao
+  tests/           -> testes automatizados
+public/            -> imagens e arquivos estaticos
 ```
 
 ## Como rodar
