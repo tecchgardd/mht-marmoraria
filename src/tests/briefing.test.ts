@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { emptyBriefing, getNextBriefingQuestion, isBriefingReady, mergeBriefing } from '../lib/ai/briefing';
+import { emptyBriefing, getNextBriefingQuestion, isBriefingReady, mergeBriefing, NOT_APPLICABLE } from '../lib/ai/briefing';
 
 test('mergeBriefing fills only the pending field with the answer', () => {
   const briefing = mergeBriefing({ ...emptyBriefing, ambiente: 'Cozinha' }, 'mármore branco');
@@ -28,4 +28,16 @@ test('briefing is ready only with all required fields', () => {
     }),
     true,
   );
+});
+
+test('questions offer options that fit the room', () => {
+  const bathroom = { ...emptyBriefing, ambiente: 'Banheiro', pedra: 'Mármore claro', estilo: 'Moderno', coresMoveis: 'Branco' };
+  assert.doesNotMatch(getNextBriefingQuestion(bathroom), /ilha/i);
+});
+
+test('stairs never ask for countertop or sink', () => {
+  const stairs = mergeBriefing({ ...emptyBriefing, ambiente: 'Escada', pedra: 'Travertino', estilo: 'Clássico' }, 'corrimão preto');
+  assert.equal(stairs.bancada, NOT_APPLICABLE);
+  assert.equal(stairs.pia, NOT_APPLICABLE);
+  assert.match(getNextBriefingQuestion(stairs), /iluminação/i);
 });

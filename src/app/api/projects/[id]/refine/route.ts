@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server';
 import { negativePrompt } from '@/lib/ai/prompts';
-import { briefingFieldLabels } from '@/lib/ai/briefing';
+import { briefingFieldLabels, normalizeBriefing } from '@/lib/ai/briefing';
 import { interpretRefinement } from '@/lib/ai/openai';
-import { renderPreviewViews } from '@/lib/ai/previews';
+import { PreviewError, renderPreviewViews } from '@/lib/ai/previews';
 import { isValueQuestion, specialistPricingResponse } from '@/lib/ai/sanitize';
 import { refineRequestSchema } from '@/lib/ai/schemas';
 import { addProjectVersion, createOrUpdateProject, getLatestVersion, getProject, projectToBriefing } from '@/lib/ai/store';
@@ -41,20 +41,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const changes: Partial<Briefing> = decision?.changes || {
     observacoes: [briefing.observacoes, `Ajuste: ${message}`].filter(Boolean).join('\n'),
   };
-  const updatedBriefing = { ...briefing, ...changes };
-  await createOrUpdateProject(id, updatedBriefing);
+  const updatedBriefing = normalizeBriefing({ ...briefing, ...changes });
 
   const changeSummary = (Object.keys(changes) as Array<keyof Briefing>)
     .map((field) => `${briefingFieldLabels[field]}: ${updatedBriefing[field]}`)
     .join('; ');
 
   const previousVersion = await getLatestVersion(id);
-  const previousContext = JSON.stringify(previousVersion?.briefingJson || briefing);
-  const images = await renderPreviewViews(
-    updatedBriefing,
-    previousContext,
-    `Alterar apenas: ${changeSummary}.\nPreservar todo o restante do projeto exatamente igual à versão anterior.`,
-  );
+  const previousImageUrl = previousVersion?.imagesJson.find((image) => image.type === 'FRONT')?.imageUrl;
+
+  let images;
+  try {
+    images = await renderPreviewViews(updatedBriefing, {
+      previousImageUrl,
+      change: `${changeSummary} (pedido do cliente: "${message}")`,
+    });
+  } catch (error) {
+    if (error instanceof PreviewError) return NextResponse.json({ error: error.message }, { status: 502 });
+    throw error;
+  }
+
+  await createOrUpdateProject(id, updatedBriefing);
 
   const version = await addProjectVersion({
     projectId: id,

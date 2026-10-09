@@ -54,12 +54,12 @@ const BRIEFING_FIELDS: Array<[keyof Briefing, string]> = [
 
 const imageLabels: Record<ProjectImage['type'], string> = {
   FRONT: 'Vista frontal',
-  LEFT: 'Lateral esquerda',
+  LEFT: 'Vista em perspectiva',
   RIGHT: 'Lateral direita',
-  TOP: 'Vista superior',
+  TOP: 'Vista de cima',
   COUNTERTOP_DETAIL: 'Detalhe da bancada',
-  SINK_DETAIL: 'Detalhe da pia',
-  FINISH_DETAIL: 'Close do acabamento',
+  SINK_DETAIL: 'Detalhe da cuba',
+  FINISH_DETAIL: 'Detalhe do acabamento',
 };
 
 const SUGGESTIONS = [
@@ -73,22 +73,6 @@ const INTRO = 'Olá! Vou montar uma prévia do seu projeto. Qual ambiente você 
 
 function createMessage(role: ChatMessage['role'], content: string, version?: ProjectVersion): ChatMessage {
   return { id: `${role}-${Date.now()}-${Math.random().toString(16).slice(2)}`, role, content, version };
-}
-
-// Fills gaps so a preview can be generated before the briefing is complete.
-function completeBriefing(briefing: Briefing): Briefing {
-  return {
-    ambiente: briefing.ambiente || 'Cozinha',
-    estilo: briefing.estilo || 'Moderno',
-    pedra: briefing.pedra || 'Mármore branco',
-    coresMoveis: briefing.coresMoveis || 'Armários em tons neutros',
-    bancada: briefing.bancada || 'Bancada reta',
-    pia: briefing.pia || 'Cuba embutida',
-    iluminacao: briefing.iluminacao || 'LED quente',
-    medidasAproximadas: briefing.medidasAproximadas || 'A confirmar',
-    referencias: briefing.referencias || '',
-    observacoes: briefing.observacoes || '',
-  };
 }
 
 function AssistantAvatar() {
@@ -110,7 +94,7 @@ function PreviewGrid({ version, onOpen }: { version: ProjectVersion; onOpen: (im
             key={image.id}
             type="button"
             onClick={() => onOpen(images, index)}
-            className={`group relative overflow-hidden rounded-xl border border-white/10 bg-black ${index === 0 ? 'col-span-3 aspect-[16/9]' : 'aspect-[4/3]'}`}
+            className={`group relative overflow-hidden rounded-xl border border-white/10 bg-black ${index === 0 ? 'col-span-3 aspect-[3/2]' : 'aspect-[3/2]'}`}
           >
             <Image src={image.imageUrl} alt={imageLabels[image.type]} fill unoptimized className="object-cover transition duration-500 group-hover:scale-105" />
             <span className="absolute bottom-2 left-2 rounded-md bg-black/65 px-2 py-1 text-[11px] text-white backdrop-blur">{imageLabels[image.type]}</span>
@@ -199,7 +183,7 @@ export default function AiAssistantPage({ whatsappHref }: { whatsappHref: string
 
       if (!hasPreview && data.readyToGenerate) {
         setIsLoading(false);
-        await generatePreview(data.projectId || projectId, completeBriefing(data.briefing), message);
+        await generatePreview(data.projectId || projectId, data.briefing, message);
       }
     } catch (error) {
       addMessage(createMessage('assistant', error instanceof Error ? error.message : 'Não foi possível concluir agora. Tente novamente.'));
@@ -212,7 +196,7 @@ export default function AiAssistantPage({ whatsappHref }: { whatsappHref: string
   async function generateNow() {
     if (busy) return;
     try {
-      await generatePreview(projectId, completeBriefing(briefing), 'Gerar prévia com o briefing atual.');
+      await generatePreview(projectId, briefing, 'Gerar prévia com o briefing atual.');
     } catch (error) {
       addMessage(createMessage('assistant', error instanceof Error ? error.message : 'Não foi possível gerar as prévias agora.'));
     } finally {
@@ -428,7 +412,7 @@ export default function AiAssistantPage({ whatsappHref }: { whatsappHref: string
                     <div className="pt-1">
                       {isGenerating ? (
                         <div className="w-full max-w-md">
-                          <p className="text-sm text-stone-250">Gerando as prévias do seu ambiente...</p>
+                          <p className="text-sm text-stone-250">Gerando as prévias do seu projeto. Isso leva cerca de 1 minuto...</p>
                           <div className="mt-3 grid grid-cols-3 gap-2">
                             {Array.from({ length: 3 }).map((_, index) => (
                               <span key={index} className="aspect-[4/3] w-28 animate-pulse rounded-xl bg-white/[0.06]" />
@@ -446,7 +430,7 @@ export default function AiAssistantPage({ whatsappHref }: { whatsappHref: string
                   </div>
                 )}
 
-                {!hasPreview && !busy && filled >= 2 && (
+                {!hasPreview && !busy && briefing.ambiente && briefing.pedra && (
                   <div className="flex justify-center">
                     <button type="button" onClick={generateNow} className="flex items-center gap-2 rounded-full border border-gold-400/30 px-4 py-2 text-xs text-gold-200 transition hover:bg-gold-400/10">
                       <Wand2 size={14} />

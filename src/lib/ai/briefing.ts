@@ -26,15 +26,47 @@ export const briefingFieldLabels: Record<keyof Briefing, string> = {
   observacoes: 'observações',
 };
 
-// Required fields in the order they are asked.
-const requiredBriefingFields: Array<[keyof Briefing, string]> = [
-  ['ambiente', 'Qual ambiente você quer projetar: cozinha, banheiro, área gourmet ou escada?'],
-  ['pedra', 'Qual pedra você quer usar: mármore, granito ou quartzo? Se souber a cor ou o nome, pode dizer.'],
-  ['estilo', 'Qual estilo você prefere: moderno, minimalista ou clássico?'],
-  ['coresMoveis', 'Qual a cor dos móveis e dos metais?'],
-  ['bancada', 'Qual o formato da bancada: reta, em L ou ilha?'],
-  ['pia', 'Qual tipo de pia: embutida, de apoio ou esculpida na pedra?'],
-  ['iluminacao', 'Qual iluminação você prefere: LED quente, luz branca ou pendentes?'],
+export const NOT_APPLICABLE = 'Não se aplica';
+
+const isBathroom = (ambiente: string) => /banheiro|lavabo/.test(ambiente);
+const isKitchen = (ambiente: string) => /cozinha|gourmet|churrasqueira/.test(ambiente);
+export const isStairs = (ambiente: string) => /escada/i.test(ambiente);
+
+type Question = (ambiente: string) => string;
+
+// Required fields in the order they are asked. Options depend on the room, so a bathroom is never offered an island.
+const requiredBriefingFields: Array<[keyof Briefing, Question]> = [
+  ['ambiente', () => 'Qual ambiente você quer projetar: cozinha, banheiro, área gourmet ou escada?'],
+  ['pedra', () => 'Qual pedra você quer usar: mármore, granito ou quartzo? Se souber a cor ou o nome, pode dizer.'],
+  ['estilo', () => 'Qual estilo você prefere: moderno, minimalista ou clássico?'],
+  [
+    'coresMoveis',
+    (ambiente) =>
+      isStairs(ambiente)
+        ? 'Qual a cor do corrimão e das paredes ao redor da escada?'
+        : 'Qual a cor dos móveis e dos metais (torneira, puxadores)?',
+  ],
+  [
+    'bancada',
+    (ambiente) =>
+      isBathroom(ambiente)
+        ? 'Qual o formato da bancada: reta, suspensa ou com nicho?'
+        : 'Qual o formato da bancada: reta, em L ou com ilha?',
+  ],
+  [
+    'pia',
+    (ambiente) =>
+      isKitchen(ambiente)
+        ? 'Qual tipo de cuba: embutida, sobreposta ou esculpida na pedra? Simples ou dupla?'
+        : 'Qual tipo de cuba: de apoio, embutida ou esculpida na pedra?',
+  ],
+  [
+    'iluminacao',
+    (ambiente) =>
+      isStairs(ambiente)
+        ? 'Qual iluminação você prefere: LED nos degraus, arandelas ou luz natural?'
+        : 'Qual iluminação você prefere: luz quente, luz branca ou pendentes?',
+  ],
 ];
 
 const environmentKeywords: Array<[RegExp, string]> = [
@@ -65,6 +97,12 @@ function matchKeyword(text: string, keywords: Array<[RegExp, string]>) {
   return keywords.find(([pattern]) => pattern.test(text))?.[1] || '';
 }
 
+// Fields that do not exist in the chosen room are filled so they are never asked.
+export function normalizeBriefing(briefing: Briefing): Briefing {
+  if (!isStairs(briefing.ambiente)) return briefing;
+  return { ...briefing, bancada: briefing.bancada || NOT_APPLICABLE, pia: briefing.pia || NOT_APPLICABLE };
+}
+
 export function getPendingField(briefing: Briefing) {
   return requiredBriefingFields.find(([field]) => !briefing[field])?.[0];
 }
@@ -87,7 +125,7 @@ export function mergeBriefing(current: Briefing, message: string): Briefing {
     next[pending] = message.trim();
   }
 
-  return next;
+  return normalizeBriefing(next);
 }
 
 export function isBriefingReady(briefing: Briefing) {
@@ -96,5 +134,6 @@ export function isBriefingReady(briefing: Briefing) {
 
 export function getNextBriefingQuestion(briefing: Briefing) {
   const pending = getPendingField(briefing);
-  return requiredBriefingFields.find(([field]) => field === pending)?.[1] || '';
+  const question = requiredBriefingFields.find(([field]) => field === pending)?.[1];
+  return question ? question(briefing.ambiente.toLowerCase()) : '';
 }
