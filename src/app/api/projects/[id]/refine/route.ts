@@ -1,84 +1,75 @@
 import { NextResponse } from 'next/server';
-import { buildImagePrompt, negativePrompt, viewTypes } from '@/lib/ai/prompts';
-import { generateImageDataUrl } from '@/lib/ai/openai';
+import { negativePrompt } from '@/lib/ai/prompts';
+import { briefingFieldLabels } from '@/lib/ai/briefing';
+import { interpretRefinement } from '@/lib/ai/openai';
+import { renderPreviewViews } from '@/lib/ai/previews';
+import { isValueQuestion, specialistPricingResponse } from '@/lib/ai/sanitize';
 import { refineRequestSchema } from '@/lib/ai/schemas';
-import { addProjectVersion, createProjectImage, createOrUpdateProject, getProject, getVersions } from '@/lib/ai/store';
-import type { Briefing, ProjectImageType } from '@/lib/ai/types';
+import { addProjectVersion, createOrUpdateProject, getLatestVersion, getProject, projectToBriefing } from '@/lib/ai/store';
+import type { Briefing } from '@/lib/ai/types';
 
-const fallbackImages = [
-  '/assets/cozinha/cozinha1.webp',
-  '/assets/banheiro/banheiro1.webp',
-  '/assets/areagourmet/area1.webp',
-  '/assets/escadas/escadas1.webp',
-  '/assets/granitos/granito1.webp',
-  '/assets/marmores/ma1.webp',
-  '/assets/quartzo/qa1.webp',
-];
-
-function projectToBriefing(project: NonNullable<ReturnType<typeof getProject>>): Briefing {
-  return {
-    ambiente: project.environmentType,
-    estilo: project.style,
-    pedra: project.stoneType,
-    coresMoveis: project.furnitureColors,
-    bancada: project.countertopType,
-    pia: project.sinkType,
-    iluminacao: project.lighting,
-    medidasAproximadas: project.approximateMeasures,
-    referencias: project.references,
-    observacoes: project.notes,
-  };
-}
+// Image generation takes a while; allows long runs on Vercel.
+export const maxDuration = 300;
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const body = await request.json();
-  const parsed = refineRequestSchema.safeParse(body);
+  const parsed = refineRequestSchema.safeParse(await request.json().catch(() => null));
   const { id } = await params;
 
   if (!parsed.success) {
     return NextResponse.json({ error: 'Pedido de alteração inválido.' }, { status: 400 });
   }
 
-  const project = getProject(id);
+  const project = await getProject(id);
   if (!project) {
     return NextResponse.json({ error: 'Projeto não encontrado.' }, { status: 404 });
   }
 
   const briefing = parsed.data.briefing || projectToBriefing(project);
-  const updatedBriefing = {
-    ...briefing,
-    observacoes: `${briefing.observacoes}\nAlteração solicitada: ${parsed.data.message}`,
-  };
-  createOrUpdateProject(id, updatedBriefing);
+  const message = parsed.data.message;
 
-  const previousContext = JSON.stringify(getVersions(id).at(-1)?.briefingJson || briefing);
-  const images = [];
-  const prompts = [];
-
-  for (let index = 0; index < viewTypes.length; index += 1) {
-    const view = viewTypes[index];
-    const prompt = `${buildImagePrompt(updatedBriefing, view.prompt, previousContext)}
-Alterar apenas o seguinte item solicitado pelo cliente: ${parsed.data.message}.
-Preservar todo o restante do projeto.`;
-    prompts.push(prompt);
-    const generated = await generateImageDataUrl(`${prompt}\n\nNegative prompt: ${negativePrompt}`);
-    images.push(
-      createProjectImage({
-        type: view.key as ProjectImageType,
-        imageUrl: generated || fallbackImages[index % fallbackImages.length],
-        prompt,
-      }),
-    );
+  if (isValueQuestion(message)) {
+    return NextResponse.json({ projectId: id, response: specialistPricingResponse, briefing });
   }
 
-  const version = addProjectVersion({
+  const decision = await interpretRefinement(message, briefing).catch(() => null);
+
+  if (decision?.action === 'ask') {
+    return NextResponse.json({ projectId: id, response: decision.response, briefing });
+  }
+
+  // Without the AI, the request is kept as a note so the image still reflects it.
+  const changes: Partial<Briefing> = decision?.changes || {
+    observacoes: [briefing.observacoes, `Ajuste: ${message}`].filter(Boolean).join('\n'),
+  };
+  const updatedBriefing = { ...briefing, ...changes };
+  await createOrUpdateProject(id, updatedBriefing);
+
+  const changeSummary = (Object.keys(changes) as Array<keyof Briefing>)
+    .map((field) => `${briefingFieldLabels[field]}: ${updatedBriefing[field]}`)
+    .join('; ');
+
+  const previousVersion = await getLatestVersion(id);
+  const previousContext = JSON.stringify(previousVersion?.briefingJson || briefing);
+  const images = await renderPreviewViews(
+    updatedBriefing,
+    previousContext,
+    `Alterar apenas: ${changeSummary}.\nPreservar todo o restante do projeto exatamente igual à versão anterior.`,
+  );
+
+  const version = await addProjectVersion({
     projectId: id,
-    userRequest: parsed.data.message,
-    briefingJson: updatedBriefing,
-    imagePrompt: prompts[0],
+    userRequest: message,
+    briefing: updatedBriefing,
+    imagePrompt: images[0].prompt,
     negativePrompt,
-    imagesJson: images,
+    images,
   });
 
-  return NextResponse.json({ projectId: id, version, images: version.imagesJson });
+  return NextResponse.json({
+    projectId: id,
+    version,
+    images: version.imagesJson,
+    briefing: updatedBriefing,
+    response: decision?.response || 'Ajuste aplicado. Mantive o restante do projeto.',
+  });
 }

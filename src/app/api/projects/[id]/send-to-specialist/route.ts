@@ -4,20 +4,19 @@ import { sendToSpecialistSchema } from '@/lib/ai/schemas';
 import { createLead, getProject } from '@/lib/ai/store';
 
 export async function POST(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const body = await request.json();
-  const parsed = sendToSpecialistSchema.safeParse(body);
+  const parsed = sendToSpecialistSchema.safeParse(await request.json().catch(() => null));
   const { id } = await params;
 
   if (!parsed.success) {
     return NextResponse.json({ error: 'Dados de contato inválidos.' }, { status: 400 });
   }
 
-  const project = getProject(id);
+  const project = await getProject(id);
   if (!project) {
     return NextResponse.json({ error: 'Projeto não encontrado.' }, { status: 404 });
   }
 
-  const lead = createLead(id, {
+  const lead = await createLead(id, {
     customerName: parsed.data.customerName,
     customerWhatsapp: parsed.data.customerWhatsapp,
     message: sanitizeAiResponse(parsed.data.message),

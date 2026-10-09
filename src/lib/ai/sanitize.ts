@@ -16,10 +16,11 @@ export function sanitizeAiResponse(text: string) {
 }
 
 export function isValueQuestion(message: string) {
-  return /(preco|preço|valor|orcamento|orçamento|quanto custa|m²|m2|metro quadrado|desconto|promocao|promoção|prazo)/i.test(
+  // Plain measures like "3 m2" are briefing data, not pricing questions.
+  return /(pre[cç]o|valor|or[cç]amento|quanto (custa|fica|sai)|por m(2|²)|o m(2|²)|desconto|promo[cç][aã]o|prazo|parcel)/i.test(
     message,
   );
 }
 
 export const specialistPricingResponse =
-  'Essa etapa sera analisada por um especialista, que avaliara medidas, material, acabamento e instalacao para preparar uma proposta correta.';
+  'Valores e prazos são definidos por um especialista após analisar medidas, material e instalação.';

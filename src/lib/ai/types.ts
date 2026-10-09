@@ -16,7 +16,6 @@ export type Briefing = {
 
 export type Project = {
   id: string;
-  userId?: string;
   customerName?: string;
   customerWhatsapp?: string;
   status: ProjectStatus;

@@ -1,25 +1,72 @@
-import type { Briefing, Project, ProjectImage, ProjectVersion, SpecialistLead } from './types';
+import type {
+  Project as ProjectRow,
+  ProjectImage as ProjectImageRow,
+  ProjectVersion as ProjectVersionRow,
+  SpecialistLead as SpecialistLeadRow,
+} from '../../generated/prisma/client';
+import { getPrisma, isPrismaError, isUuid } from '../prisma';
+import type { Briefing, Project, ProjectImage, ProjectImageType, ProjectVersion, SpecialistLead } from './types';
 
-const projects = new Map<string, Project>();
-const versions = new Map<string, ProjectVersion[]>();
-const leads = new Map<string, SpecialistLead>();
-
-function createId(prefix: string) {
-  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+function toProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    status: row.status,
+    customerName: row.customerName ?? undefined,
+    customerWhatsapp: row.customerWhatsapp ?? undefined,
+    environmentType: row.environmentType,
+    style: row.style,
+    stoneType: row.stoneType,
+    furnitureColors: row.furnitureColors,
+    countertopType: row.countertopType,
+    sinkType: row.sinkType,
+    lighting: row.lighting,
+    approximateMeasures: row.approximateMeasures,
+    references: row.references,
+    notes: row.notes,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
 }
 
-function now() {
-  return new Date().toISOString();
+function toImage(row: ProjectImageRow): ProjectImage {
+  return {
+    id: row.id,
+    projectVersionId: row.versionId,
+    type: row.type,
+    imageUrl: row.imageUrl,
+    prompt: row.prompt,
+    createdAt: row.createdAt.toISOString(),
+  };
 }
 
-export function createOrUpdateProject(projectId: string | undefined, briefing: Briefing) {
-  const currentTime = now();
-  const id = projectId || createId('project');
-  const existing = projects.get(id);
+function toVersion(row: ProjectVersionRow & { images: ProjectImageRow[] }): ProjectVersion {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    versionNumber: row.versionNumber,
+    userRequest: row.userRequest,
+    briefingJson: row.briefing as Briefing,
+    imagePrompt: row.imagePrompt,
+    negativePrompt: row.negativePrompt,
+    imagesJson: row.images.map(toImage),
+    createdAt: row.createdAt.toISOString(),
+  };
+}
 
-  const project: Project = {
-    id,
-    status: existing?.status || 'DRAFT',
+function toLead(row: SpecialistLeadRow): SpecialistLead {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    customerName: row.customerName,
+    customerWhatsapp: row.customerWhatsapp,
+    message: row.message,
+    status: row.status,
+    createdAt: row.createdAt.toISOString(),
+  };
+}
+
+function briefingColumns(briefing: Briefing) {
+  return {
     environmentType: briefing.ambiente,
     style: briefing.estilo,
     stoneType: briefing.pedra,
@@ -30,85 +77,128 @@ export function createOrUpdateProject(projectId: string | undefined, briefing: B
     approximateMeasures: briefing.medidasAproximadas,
     references: briefing.referencias,
     notes: briefing.observacoes,
-    createdAt: existing?.createdAt || currentTime,
-    updatedAt: currentTime,
-    customerName: existing?.customerName,
-    customerWhatsapp: existing?.customerWhatsapp,
-    userId: existing?.userId,
   };
-
-  projects.set(id, project);
-  return project;
 }
 
-export function getProject(projectId: string) {
-  return projects.get(projectId);
+export function projectToBriefing(project: Project): Briefing {
+  return {
+    ambiente: project.environmentType,
+    estilo: project.style,
+    pedra: project.stoneType,
+    coresMoveis: project.furnitureColors,
+    bancada: project.countertopType,
+    pia: project.sinkType,
+    iluminacao: project.lighting,
+    medidasAproximadas: project.approximateMeasures,
+    referencias: project.references,
+    observacoes: project.notes,
+  };
 }
 
-export function getVersions(projectId: string) {
-  return versions.get(projectId) || [];
+// Unknown or invalid ids (e.g. a stale id kept by the browser) start a new project.
+export async function createOrUpdateProject(projectId: string | undefined, briefing: Briefing) {
+  const prisma = getPrisma();
+  const data = briefingColumns(briefing);
+
+  if (isUuid(projectId)) {
+    try {
+      return toProject(await prisma.project.update({ where: { id: projectId }, data }));
+    } catch (error) {
+      if (!isPrismaError(error, 'P2025')) throw error;
+    }
+  }
+  return toProject(await prisma.project.create({ data }));
 }
 
-export function addProjectVersion(input: {
+export async function getProject(projectId: string) {
+  if (!isUuid(projectId)) return null;
+  const row = await getPrisma().project.findUnique({ where: { id: projectId } });
+  return row ? toProject(row) : null;
+}
+
+export async function getLatestVersion(projectId: string) {
+  if (!isUuid(projectId)) return null;
+  const row = await getPrisma().projectVersion.findFirst({
+    where: { projectId },
+    orderBy: { versionNumber: 'desc' },
+    include: { images: { orderBy: { createdAt: 'asc' } } },
+  });
+  return row ? toVersion(row) : null;
+}
+
+export async function addProjectVersion(input: {
   projectId: string;
   userRequest: string;
-  briefingJson: Briefing;
+  briefing: Briefing;
   imagePrompt: string;
   negativePrompt: string;
-  imagesJson: ProjectImage[];
+  images: Array<{ type: ProjectImageType; imageUrl: string; prompt: string }>;
 }) {
-  const projectVersions = getVersions(input.projectId);
-  const version: ProjectVersion = {
-    id: createId('version'),
-    projectId: input.projectId,
-    versionNumber: projectVersions.length + 1,
-    userRequest: input.userRequest,
-    briefingJson: input.briefingJson,
-    imagePrompt: input.imagePrompt,
-    negativePrompt: input.negativePrompt,
-    imagesJson: input.imagesJson.map((image) => ({ ...image, projectVersionId: '' })),
-    createdAt: now(),
-  };
-
-  version.imagesJson = input.imagesJson.map((image) => ({
-    ...image,
-    projectVersionId: version.id,
-  }));
-
-  versions.set(input.projectId, [...projectVersions, version]);
-  return version;
-}
-
-export function createProjectImage(input: Omit<ProjectImage, 'id' | 'createdAt' | 'projectVersionId'>) {
-  return {
-    id: createId('image'),
-    projectVersionId: '',
-    createdAt: now(),
-    ...input,
-  };
-}
-
-export function createLead(projectId: string, input: Omit<SpecialistLead, 'id' | 'projectId' | 'status' | 'createdAt'>) {
-  const lead: SpecialistLead = {
-    id: createId('lead'),
-    projectId,
-    customerName: input.customerName,
-    customerWhatsapp: input.customerWhatsapp,
-    message: input.message,
-    status: 'NEW',
-    createdAt: now(),
-  };
-
-  leads.set(lead.id, lead);
-  const project = projects.get(projectId);
-  if (project) {
-    projects.set(projectId, {
-      ...project,
-      customerName: input.customerName,
-      customerWhatsapp: input.customerWhatsapp,
-      status: 'SENT_TO_SPECIALIST',
-      updatedAt: now(),
+  const prisma = getPrisma();
+  const row = await prisma.$transaction(async (tx) => {
+    const last = await tx.projectVersion.findFirst({
+      where: { projectId: input.projectId },
+      orderBy: { versionNumber: 'desc' },
+      select: { versionNumber: true },
     });
-  }
-  return lead;
+    return tx.projectVersion.create({
+      data: {
+        projectId: input.projectId,
+        versionNumber: (last?.versionNumber ?? 0) + 1,
+        userRequest: input.userRequest,
+        briefing: input.briefing,
+        imagePrompt: input.imagePrompt,
+        negativePrompt: input.negativePrompt,
+        images: { create: input.images },
+      },
+      include: { images: { orderBy: { createdAt: 'asc' } } },
+    });
+  });
+  return toVersion(row);
+}
+
+export async function createLead(
+  projectId: string,
+  input: Pick<SpecialistLead, 'customerName' | 'customerWhatsapp' | 'message'>,
+) {
+  const prisma = getPrisma();
+  const [lead] = await prisma.$transaction([
+    prisma.specialistLead.create({ data: { projectId, ...input } }),
+    prisma.project.update({
+      where: { id: projectId },
+      data: {
+        customerName: input.customerName,
+        customerWhatsapp: input.customerWhatsapp,
+        status: 'SENT_TO_SPECIALIST',
+      },
+    }),
+  ]);
+  return toLead(lead);
+}
+
+export type LeadSummary = SpecialistLead & { environment: string; stone: string };
+
+export async function getLeadsOverview() {
+  const prisma = getPrisma();
+  const [newCount, total, projects, recent] = await Promise.all([
+    prisma.specialistLead.count({ where: { status: 'NEW' } }),
+    prisma.specialistLead.count(),
+    prisma.project.count(),
+    prisma.specialistLead.findMany({
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+      include: { project: { select: { environmentType: true, stoneType: true } } },
+    }),
+  ]);
+
+  return {
+    newCount,
+    total,
+    projects,
+    recent: recent.map(({ project, ...lead }): LeadSummary => ({
+      ...toLead(lead),
+      environment: project.environmentType,
+      stone: project.stoneType,
+    })),
+  };
 }

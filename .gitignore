@@ -7,3 +7,6 @@ npm-debug.log*
 *.log
 .env.env 
 .env
+
+# Prisma Client gerado
+/src/generated/prisma

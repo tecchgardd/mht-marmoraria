@@ -1,0 +1,190 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ---------- Portal ----------
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("users")
+}
+
+enum ContentKind {
+  SERVICE
+  MATERIAL
+  CASE
+  BANNER
+}
+
+enum MediaType {
+  IMAGE
+  VIDEO
+}
+
+model ContentItem {
+  id          String         @id @default(uuid()) @db.Uuid
+  kind        ContentKind
+  title       String
+  category    String         @default("")
+  summary     String         @default("")
+  description String         @default("")
+  features    String[]       @default([])
+  published   Boolean        @default(true)
+  sortOrder   Int            @default(0) @map("sort_order")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+  images      ContentImage[]
+
+  @@index([kind, published, sortOrder])
+  @@map("content_items")
+}
+
+model ContentImage {
+  id       String      @id @default(uuid()) @db.Uuid
+  itemId   String      @map("item_id") @db.Uuid
+  item     ContentItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  type     MediaType   @default(IMAGE)
+  url      String
+  publicId String?     @map("public_id")
+  position Int
+
+  @@index([itemId, position])
+  @@map("content_images")
+}
+
+// ---------- Assistente de IA ----------
+
+enum ProjectStatus {
+  DRAFT
+  IN_REVIEW
+  SENT_TO_SPECIALIST
+}
+
+enum LeadStatus {
+  NEW
+  CONTACTED
+  CLOSED
+  LOST
+}
+
+enum ProjectImageType {
+  FRONT
+  LEFT
+  RIGHT
+  TOP
+  COUNTERTOP_DETAIL
+  SINK_DETAIL
+  FINISH_DETAIL
+}
+
+model Project {
+  id                  String           @id @default(uuid()) @db.Uuid
+  status              ProjectStatus    @default(DRAFT)
+  customerName        String?          @map("customer_name")
+  customerWhatsapp    String?          @map("customer_whatsapp")
+  environmentType     String           @default("") @map("environment_type")
+  style               String           @default("")
+  stoneType           String           @default("") @map("stone_type")
+  furnitureColors     String           @default("") @map("furniture_colors")
+  countertopType      String           @default("") @map("countertop_type")
+  sinkType            String           @default("") @map("sink_type")
+  lighting            String           @default("")
+  approximateMeasures String           @default("") @map("approximate_measures")
+  references          String           @default("")
+  notes               String           @default("")
+  createdAt           DateTime         @default(now()) @map("created_at")
+  updatedAt           DateTime         @updatedAt @map("updated_at")
+  versions            ProjectVersion[]
+  leads               SpecialistLead[]
+
+  @@index([status, createdAt])
+  @@map("projects")
+}
+
+model ProjectVersion {
+  id             String         @id @default(uuid()) @db.Uuid
+  projectId      String         @map("project_id") @db.Uuid
+  project        Project        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  versionNumber  Int            @map("version_number")
+  userRequest    String         @map("user_request")
+  briefing       Json
+  imagePrompt    String         @map("image_prompt")
+  negativePrompt String         @map("negative_prompt")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  images         ProjectImage[]
+
+  @@unique([projectId, versionNumber])
+  @@map("project_versions")
+}
+
+model ProjectImage {
+  id        String           @id @default(uuid()) @db.Uuid
+  versionId String           @map("version_id") @db.Uuid
+  version   ProjectVersion   @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  type      ProjectImageType
+  imageUrl  String           @map("image_url")
+  prompt    String
+  createdAt DateTime         @default(now()) @map("created_at")
+
+  @@index([versionId])
+  @@map("project_images")
+}
+
+model SpecialistLead {
+  id               String     @id @default(uuid()) @db.Uuid
+  projectId        String     @map("project_id") @db.Uuid
+  project          Project    @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  customerName     String     @map("customer_name")
+  customerWhatsapp String     @map("customer_whatsapp")
+  message          String
+  status           LeadStatus @default(NEW)
+  createdAt        DateTime   @default(now()) @map("created_at")
+
+  @@index([status, createdAt])
+  @@map("specialist_leads")
+}
+
+// ---------- Perfil da empresa ----------
+
+// Single row (id "default") with the company data shown on the site; validated by the app.
+model CompanyProfile {
+  id        String   @id @default("default")
+  data      Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("company_profile")
+}
+
+// ---------- Pedidos de orçamento (formulário do site) ----------
+
+model QuoteRequest {
+  id              String     @id @default(uuid()) @db.Uuid
+  name            String
+  phone           String
+  email           String     @default("")
+  address         String     @default("")
+  city            String     @default("")
+  services        String[]   @default([])
+  hasMeasurements Boolean    @default(false) @map("has_measurements")
+  measurements    String     @default("")
+  stoneType       String     @default("") @map("stone_type")
+  stoneColor      String     @default("") @map("stone_color")
+  notes           String     @default("")
+  topic           String     @default("")
+  status          LeadStatus @default(NEW)
+  createdAt       DateTime   @default(now()) @map("created_at")
+  updatedAt       DateTime   @updatedAt @map("updated_at")
+
+  @@index([status, createdAt])
+  @@map("quote_requests")
+}

@@ -13,73 +13,88 @@ export const emptyBriefing: Briefing = {
   observacoes: '',
 };
 
+export const briefingFieldLabels: Record<keyof Briefing, string> = {
+  ambiente: 'ambiente',
+  estilo: 'estilo',
+  pedra: 'pedra/material',
+  coresMoveis: 'cores dos móveis e metais',
+  bancada: 'formato da bancada',
+  pia: 'tipo de pia/cuba',
+  iluminacao: 'iluminação',
+  medidasAproximadas: 'medidas aproximadas',
+  referencias: 'referências',
+  observacoes: 'observações',
+};
+
+// Required fields in the order they are asked.
+const requiredBriefingFields: Array<[keyof Briefing, string]> = [
+  ['ambiente', 'Qual ambiente você quer projetar: cozinha, banheiro, área gourmet ou escada?'],
+  ['pedra', 'Qual pedra você quer usar: mármore, granito ou quartzo? Se souber a cor ou o nome, pode dizer.'],
+  ['estilo', 'Qual estilo você prefere: moderno, minimalista ou clássico?'],
+  ['coresMoveis', 'Qual a cor dos móveis e dos metais?'],
+  ['bancada', 'Qual o formato da bancada: reta, em L ou ilha?'],
+  ['pia', 'Qual tipo de pia: embutida, de apoio ou esculpida na pedra?'],
+  ['iluminacao', 'Qual iluminação você prefere: LED quente, luz branca ou pendentes?'],
+];
+
+const environmentKeywords: Array<[RegExp, string]> = [
+  [/cozinha/, 'Cozinha'],
+  [/banheiro/, 'Banheiro'],
+  [/lavabo/, 'Lavabo'],
+  [/gourmet|churrasqueira/, 'Área gourmet'],
+  [/escada/, 'Escada'],
+  [/lavanderia/, 'Lavanderia'],
+];
+
+const styleKeywords: Array<[RegExp, string]> = [
+  [/modern/, 'Moderno'],
+  [/minimalist/, 'Minimalista'],
+  [/cl[aá]ssic/, 'Clássico'],
+  [/r[uú]stic/, 'Rústico'],
+];
+
+const stoneKeywords: Array<[RegExp, string]> = [
+  [/m[aá]rmore/, 'Mármore'],
+  [/granito/, 'Granito'],
+  [/quartzo/, 'Quartzo'],
+  [/travertino/, 'Travertino'],
+  [/porcelanato/, 'Porcelanato'],
+];
+
+function matchKeyword(text: string, keywords: Array<[RegExp, string]>) {
+  return keywords.find(([pattern]) => pattern.test(text))?.[1] || '';
+}
+
+export function getPendingField(briefing: Briefing) {
+  return requiredBriefingFields.find(([field]) => !briefing[field])?.[0];
+}
+
+// Fallback used when the AI is unavailable: fills the field being asked, without spreading the message across fields.
 export function mergeBriefing(current: Briefing, message: string): Briefing {
   const lower = message.toLowerCase();
   const next = { ...current };
+  const pending = getPendingField(current);
 
-  if (!next.ambiente) {
-    if (lower.includes('cozinha')) next.ambiente = 'Cozinha';
-    if (lower.includes('banheiro') || lower.includes('lavabo')) next.ambiente = 'Banheiro';
-    if (lower.includes('gourmet') || lower.includes('churrasqueira')) next.ambiente = 'Área gourmet';
-    if (lower.includes('escada')) next.ambiente = 'Escada';
-  }
-
-  if (!next.estilo) {
-    if (lower.includes('moderno')) next.estilo = 'Moderno premium';
-    if (lower.includes('clássico') || lower.includes('classico')) next.estilo = 'Clássico sofisticado';
-    if (lower.includes('minimalista')) next.estilo = 'Minimalista elegante';
+  if (!next.ambiente) next.ambiente = matchKeyword(lower, environmentKeywords);
+  if (!next.pedra && matchKeyword(lower, stoneKeywords)) next.pedra = message.trim();
+  if (!next.estilo) next.estilo = matchKeyword(lower, styleKeywords);
+  if (!next.medidasAproximadas && /\d+([.,]\d+)?\s?(m|cm)\b/i.test(message)) {
+    next.medidasAproximadas = message.trim();
   }
 
-  if (!next.pedra) {
-    if (lower.includes('mármore') || lower.includes('marmore')) next.pedra = 'Mármore';
-    if (lower.includes('granito')) next.pedra = 'Granito';
-    if (lower.includes('quartzo')) next.pedra = 'Quartzo';
-    if (lower.includes('travertino')) next.pedra = 'Travertino';
+  // The answer to the pending question goes only to that field.
+  if (pending && pending !== 'ambiente' && !next[pending]) {
+    next[pending] = message.trim();
   }
 
-  if (!next.coresMoveis && /(branco|preto|cinza|amadeirado|madeira|bege|verde)/i.test(message)) {
-    next.coresMoveis = message;
-  }
-  if (!next.bancada && /(ilha|bancada|balcão|balcao)/i.test(message)) {
-    next.bancada = message;
-  }
-  if (!next.pia && /(pia|cuba|esculpida|dupla)/i.test(message)) {
-    next.pia = message;
-  }
-  if (!next.iluminacao && /(luz|iluminação|iluminacao|led|pendente|quente)/i.test(message)) {
-    next.iluminacao = message;
-  }
-  if (!next.medidasAproximadas && /(\d+\s?m|\d+,\d+|\d+\.\d+)/i.test(message)) {
-    next.medidasAproximadas = message;
-  }
-
-  next.observacoes = next.observacoes ? `${next.observacoes}\n${message}` : message;
   return next;
 }
 
 export function isBriefingReady(briefing: Briefing) {
-  return Boolean(
-    briefing.ambiente &&
-      briefing.estilo &&
-      briefing.pedra &&
-      briefing.coresMoveis &&
-      briefing.bancada &&
-      briefing.pia &&
-      briefing.iluminacao,
-  );
+  return requiredBriefingFields.every(([field]) => Boolean(briefing[field]));
 }
 
-const requiredBriefingFields: Array<[keyof Briefing, string]> = [
-  ['ambiente', 'Qual ambiente você deseja projetar?'],
-  ['pedra', 'Qual pedra ou material você quer usar? Pode ser granito, mármore, quartzo ou outro.'],
-  ['estilo', 'Qual estilo você prefere para esse ambiente? Moderno, minimalista, clássico ou outro?'],
-  ['coresMoveis', 'Quais cores você quer nos móveis e metais?'],
-  ['bancada', 'Como você imagina a bancada? Reta, em L, com nicho, pequena, grande ou outro formato?'],
-  ['pia', 'Qual tipo de pia ou cuba você prefere? Embutida, de apoio, esculpida, dupla ou simples?'],
-  ['iluminacao', 'Como você quer a iluminação? LED quente, luz branca, pendentes, spots ou outra opção?'],
-];
-
 export function getNextBriefingQuestion(briefing: Briefing) {
-  const missingField = requiredBriefingFields.find(([field]) => !briefing[field]);
-  return missingField?.[1] || '';
+  const pending = getPendingField(briefing);
+  return requiredBriefingFields.find(([field]) => field === pending)?.[1] || '';
 }
